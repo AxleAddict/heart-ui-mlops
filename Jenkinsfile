@@ -57,3 +57,4 @@ pipeline {
     success { echo "UI deployed to nonprod — image: ${env.IMAGE}:${env.GIT_COMMIT}" }
   }
 }
+
