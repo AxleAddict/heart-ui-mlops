@@ -1,0 +1,73 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(
+      name: 'IMAGE_TAG',
+      defaultValue: 'latest',
+      description: 'Docker image tag to deploy (use git SHA from successful CI build)'
+    )
+    choice(
+      name: 'SLOT',
+      choices: ['green', 'blue'],
+      description: 'Slot to deploy into'
+    )
+  }
+
+  environment {
+    PROJECT      = "heart-mlops-2026"
+    REGION       = "asia-south1"
+    REGISTRY     = "${REGION}-docker.pkg.dev/${PROJECT}/heart-app"
+    IMAGE        = "${REGISTRY}/heart-ui"
+    CLUSTER      = "heart-cluster"
+    CLUSTER_ZONE = "${REGION}-a"
+    GCP_KEY      = credentials('gcp-service-account-key')
+  }
+
+  stages {
+
+    stage('Confirm') {
+      steps {
+        echo "Deploying ${IMAGE}:${params.IMAGE_TAG} to prod slot=${params.SLOT}"
+      }
+    }
+
+    stage('Deploy to Prod Slot') {
+      steps {
+        sh """
+          gcloud auth activate-service-account --key-file=\$GCP_KEY
+          gcloud container clusters get-credentials \$CLUSTER \
+            --zone \$CLUSTER_ZONE --project \$PROJECT
+
+          kubectl set image deployment/heart-ui-${params.SLOT} \
+            heart-ui=\${IMAGE}:${params.IMAGE_TAG} -n prod
+
+          kubectl rollout status deployment/heart-ui-${params.SLOT} \
+            -n prod --timeout=120s
+        """
+      }
+    }
+
+    stage('Cutover Traffic') {
+      steps {
+        input message: "Cut prod UI traffic to ${params.SLOT}?", ok: "Cutover"
+        sh """
+          gcloud auth activate-service-account --key-file=\$GCP_KEY
+          gcloud container clusters get-credentials \$CLUSTER \
+            --zone \$CLUSTER_ZONE --project \$PROJECT
+
+          kubectl patch service heart-ui-svc -n prod \
+            --type=json \
+            -p='[{"op":"replace","path":"/spec/selector/slot","value":"${params.SLOT}"}]'
+
+          echo "UI traffic cut to slot=${params.SLOT}"
+        """
+      }
+    }
+  }
+
+  post {
+    failure { echo "UI prod deploy failed — traffic unchanged" }
+    success { echo "UI prod deploy complete — slot=${params.SLOT}" }
+  }
+}

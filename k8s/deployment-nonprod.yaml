@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heart-ui
+  namespace: nonprod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: heart-ui
+  template:
+    metadata:
+      labels:
+        app: heart-ui
+    spec:
+      containers:
+        - name: heart-ui
+          image: asia-south1-docker.pkg.dev/heart-mlops-2026/heart-app/heart-ui:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: HEART_API_URL
+              value: "http://heart-api-svc.nonprod.svc.cluster.local:8000"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: heart-ui-svc
+  namespace: nonprod
+spec:
+  selector:
+    app: heart-ui
+  ports:
+    - port: 80
+      targetPort: 80
+  type: LoadBalancer
